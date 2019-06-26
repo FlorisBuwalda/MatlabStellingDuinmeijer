@@ -56,19 +56,11 @@
 #ifndef __CUDACC__  
 #define __CUDACC__
 #endif
-
-
-
-
 using namespace std;
 
  // Convenience function for checking CUDA runtime API results
  // can be wrapped around any runtime API call. No-op in release builds.
 inline
-
-
-
-
 
 cudaError_t checkCuda(cudaError_t result)
 {
@@ -82,44 +74,53 @@ cudaError_t checkCuda(cudaError_t result)
 }
 
 ////// parameters
-const int BLOCK_SIZE_x = 32;  // number of threads per block in x-dir
-const int BLOCK_SIZE_y = 16;  // number of threads per block in y-dir
-int n ; 
-__constant__ int  n_d;
+constexpr int BLOCK_SIZE_x = 32;  // number of threads per block in x-dir
+constexpr int BLOCK_SIZE_y = 32;  // number of threads per block in y-dir
 
-const int L = n+1;          //Domain length
-const int W = n+1;          //Domain width
+//constexpr int threads[] = { 1,0 };
+//constexpr int iter = 10;
+//constexpr int ni = 1;
+//constexpr int n = 3 * 32 * ni + 2;
+//constexpr int L = n + 1;          //Domain length
+//constexpr int W = n + 1;          //Domain width
+//constexpr float dx_h = (float)W / ((float)(n + 1));                // inter grid distance in x - direction
+//constexpr float dy_h = (float)L / ((float)(n + 1));                // inter grid distance in y - direction
+
+int n;
+constexpr float dx_h = 1;
+constexpr float dy_h = 1;
+
+
+__constant__ int  n_d;
+__constant__ float dx;
+__constant__ float dy;
 
 __constant__ float Hstart ;    //Rest water depth
-const float Hstart_h = 1;
+constexpr float Hstart_h = 1;
 
-const float g_h = (float)9.8;   // gravitational constant
+constexpr float g_h = (float)9.8;   // gravitational constant
 __constant__ float g;                
 
-const float tstep = 1;             // maximum timestep
-float dt = (float).01;                // first step is maximum timestep
+constexpr float tstep = 1;             // maximum timestep
+constexpr float dt = (float).01;                // first step is maximum timestep
 
-__constant__ float dx;
-const float dx_h = (float)W / ((float)(n + 1));                // inter grid distance in x - direction
 
-__constant__ float dy;
-const float dy_h =  (float)L / ((float)(n + 1));                // inter grid distance in y - direction
+
 
 
 __constant__ float cf;
-const float cf_h = 0;                    // Bottom friction factor
+constexpr float cf_h = 0;                    // Bottom friction factor
 
-const float droppar_h = .5;
+constexpr float droppar_h = .5;
 __constant__ float droppar;
 
-const int ndrops = 1;              // maximum number of water drops
-const int dropstep = 5;            // drop interval
+constexpr int ndrops = 1;              // maximum number of water drops
+constexpr int dropstep = 5;            // drop interval
 
 bool timer = false;
-const float safety = (float).9;
+constexpr float safety = (float).9;
 
-std::mutex mu;
-int barrier = 0;
+
 
 	__global__ void update( float *h, __int8 *upos, __int8 *vpos, float *U, float *V, float dt )
 {
@@ -753,13 +754,13 @@ int barrier = 0;
 	}
 
 	void updatecputhreadborder(float* h, float* U, float* V, float dt, int tid, int numthreads, int iter, cbar::cyclicbarrier* cb)
-	{
-		int BLOCK_SIZE_x = n - 2;
-		int BLOCK_SIZE_y = ceil((float)(n - 2) / (float)numthreads);
+	{  
+		const int BLOCK_SIZE_x = n - 2;
+		const int BLOCK_SIZE_y = ceil((float)(n - 2) / (float)numthreads);
 
-		float g = g_h;
-		float dx = dx_h;
-		float dy = dy_h;
+		const float g = g_h;
+		const float dx = dx_h;
+		const float dy = dy_h;
 
 		float** s_h = NULL; float** s_U = NULL; float** s_V = NULL; __int8** s_upos = NULL; __int8** s_vpos = NULL;
 		s_h = new float*[(BLOCK_SIZE_y + 2)]; s_U = new float*[(BLOCK_SIZE_y + 2)]; s_V = new float*[(BLOCK_SIZE_y + 2)];
@@ -776,8 +777,9 @@ int barrier = 0;
 		}
 
         
-		for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
+		
 			for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+				for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
 				int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 				// copy global variables into shared memory
 				s_h[sj][si] = h[globalIdx];
@@ -789,8 +791,9 @@ int barrier = 0;
 		}
 		for (int z = 0; z < iter; z++) {
 			
-			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
+			
 				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+					for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 
 					//Boundaries
@@ -821,9 +824,10 @@ int barrier = 0;
 			cb->await();//
 
 				//update U
-			
+
+			for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
 			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
-				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+				
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 
 					//update U (no sync necessary)
@@ -839,8 +843,9 @@ int barrier = 0;
 			cb->await();//syncthreads(numthreads);
 
 			//write temp values to shared memory after sync and update upos
+			for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
 			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
-				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+				
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 					s_U[sj][si] = U[globalIdx];
 
@@ -849,8 +854,9 @@ int barrier = 0;
 			cb->await();//syncthreads(numthreads);
 
 			//update V
-			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
+			
 				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+					for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 					V[globalIdx] = s_V[sj][si] - g * dt / dy * (s_h[sj + 1][si] - s_h[sj][si])
 						- s_vpos[sj][si] * dt / dy * (s_V[sj][si] - s_V[sj - 1][si]) * (s_V[sj][si] + s_V[sj - 1][si]) / 2
@@ -864,8 +870,9 @@ int barrier = 0;
 			cb->await();//syncthreads(numthreads);
 
 
+			for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
 			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
-				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+				
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 					s_V[sj][si] = V[globalIdx];
 
@@ -873,8 +880,9 @@ int barrier = 0;
 			}
 			cb->await();//syncthreads(numthreads);
 			//update H
+			for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
 			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
-				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+				
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 					//calculate hy
 					float s_hy =
@@ -905,8 +913,9 @@ int barrier = 0;
 
 			}
 			cb->await();//syncthreads(numthreads);
-			for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
+			
 				for (int sj = 1; sj < BLOCK_SIZE_y + 1; sj++) {
+					for (int si = 1; si < BLOCK_SIZE_x + 1; si++) {
 					int globalIdx = si + (sj + BLOCK_SIZE_y * tid) *n;
 					s_h[sj][si] = h[globalIdx];
 
@@ -1175,7 +1184,7 @@ void runprogram(int iter)
 		cudaDeviceReset();
 }
 
-void runprogrambenchmark(int iter, int updatetype)
+void runprogrambenchmark( int iter, int updatetype)
 {
 
 	cudaEvent_t start2;
@@ -1296,7 +1305,8 @@ void runprogrambenchmark(int iter, int updatetype)
 
 void RunProgramCPU(int iter,int maxthreads) {
 
-	
+	//std::mutex mu;
+	//int barrier = 0;
 	// Print device and precision
 	cudaDeviceProp prop;
 	checkCuda(cudaGetDeviceProperties(&prop, 0));
@@ -1368,6 +1378,7 @@ void RunProgramCPU(int iter,int maxthreads) {
 		t[i].join();
 	}
 	float timestop = float(clock() - timestart)/ CLOCKS_PER_SEC;
+
 	if (n == 34) {
 		showMatrix("H", H_h, n, n);
 	}
@@ -1380,27 +1391,33 @@ void RunProgramCPU(int iter,int maxthreads) {
 int main()
 {	
 	
-	int ns[] = { 1};
-		int iter = 100;
-		int maxthreads = 1;
-		for (int ni : ns) {
-			//n = 3 * 32 * ni + 2;
+	constexpr int ns[] = { 1  , 2, 4, 8, 16, 32};
+	constexpr int iter = 10;
+	constexpr int threads[] = { 0,1 };
+		//int maxthreads = 1;
+		for (const int ni : ns) {
+			 n = 3 * 32 * ni + 2;
 			
-			n = 34;
+			//n = 34;
 			
 			
-			printf("n = %d ", n);
+			printf("n = %d GPU: ", n);
+			
 			//runprogram(iter);
 			runprogrambenchmark(iter,1);
 			
 			//printf("nobool: ");
-			//runprogrambenchmark(iter,2);
+			runprogrambenchmark(iter,2);
 			
 			//printf("borders: ");
 			//runprogrambenchmark(iter,3);
 
-			RunProgramCPU(iter,0);
-			//RunProgramCPU(iter, maxthreads);
+			//RunProgramCPU(iter,0);
+			//if (ni<20)
+			printf("CPU: ");
+			
+			for (const int maxthreads:threads)
+			RunProgramCPU(iter, maxthreads);
 			
 			printf(" \n");
 		}
